@@ -1,0 +1,63 @@
+#!/usr/bin/env python
+import rospy
+import numpy as np
+from geometry_msgs.msg import TwistStamped, PoseStamped, Quaternion
+from std_msgs.msg import Header
+import tf
+
+# Parámetros del cuadrotor
+m = 1.0  # Masa del cuadrotor
+g = 9.81  # Aceleración debido a la gravedad
+J = np.diag([0.01, 0.01, 0.02])  # Matriz de inercia del cuadrotor
+
+# Estado inicial del UAV
+estado = {
+    "posicion": np.array([0.0, 0.0, 0.0]),
+    "orientacion": tf.transformations.quaternion_from_euler(0, 0, 0),  # Cuaternión para orientación neutral
+    "velocidad": np.array([0.0, 0.0, 0.0]),
+    "velocidad_angular": np.array([0.0, 0.0, 0.0])
+}
+def control_input_callback(msg):
+    global estado
+
+    # Extraer los comandos de control del mensaje
+    thrust = msg.twist.linear.z  # Empuje total hacia arriba
+    torque = np.array([msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z])  # Momentos
+
+    # Tiempo transcurrido (dt) - asumiendo llamadas a callback a 100 Hz
+    dt = 0.01
+
+    # Integración sencilla para actualizar la velocidad y la posición
+    acc = np.array([0, 0, g]) + np.array([0, 0, -thrust]) / m  
+# aceleración 
+    estado["velocidad"] += acc * dt
+    estado["posicion"] += estado["velocidad"] * dt
+
+    # Integración sencilla para la velocidad angular y la orientación
+    omega_dot = np.linalg.inv(J) @ (torque - np.cross(estado["velocidad_angular"], J @ estado["velocidad_angular"]))
+    estado["velocidad_angular"] += omega_dot * dt
+    # orientación usando la velocidad angular
+    orientacion_euler = tf.transformations.euler_from_quaternion(estado["orientacion"]) + estado["velocidad_angular"] * dt
+    estado["orientacion"] = tf.transformations.quaternion_from_euler(*orientacion_euler)
+
+def uav_dynamics():
+    rospy.init_node('uav_dynamics_node', anonymous=True)
+    rospy.Subscriber('/control_inputs', TwistStamped, control_input_callback)
+    pub = rospy.Publisher('/uav_state', PoseStamped, queue_size=10)
+    rate = rospy.Rate(100)  # 100 Hz
+    while not rospy.is_shutdown():
+        # Publicar el estado actualizado del UAV
+        estado_msg = PoseStamped()
+        estado_msg.header = Header(stamp=rospy.Time.now(), frame_id="world")
+        estado_msg.pose.position.x = estado["posicion"][0]
+        estado_msg.pose.position.y = estado["posicion"][1]
+        estado_msg.pose.position.z = estado["posicion"][2]
+        estado_msg.pose.orientation = Quaternion(*estado["orientacion"])
+        pub.publish(estado_msg)
+
+        rate.sleep()
+if __name__ == '__main__':
+    try:
+        uav_dynamics()
+    except rospy.ROSInterruptException:
+        pass
