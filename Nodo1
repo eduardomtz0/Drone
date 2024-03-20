@@ -1,0 +1,47 @@
+#!/usr/bin/env python
+import rospy
+from geometry_msgs.msg import PoseStamped
+import math
+import tf
+
+def publish_trajectory():
+    rospy.init_node('reference_node', anonymous=True)
+    pub = rospy.Publisher('/desired_trajectory', PoseStamped, queue_size=10)
+    rate = rospy.Rate(100)  
+
+    while not rospy.is_shutdown():
+        current_time = rospy.get_time()  # Tiempo actual en segundos
+        desired_pose = PoseStamped()
+        desired_pose.header.stamp = rospy.Time.now()
+        desired_pose.header.frame_id = "world"
+        # trayectoria y orientación deseada
+        if 0 <= current_time < 5:
+            desired_pose.pose.position.x = 0
+            desired_pose.pose.position.y = 0
+            desired_pose.pose.position.z = 0
+            yaw_desired = 0  # Yaw inicial
+        elif 5 <= current_time <= 65:
+            t = current_time - 5
+            desired_pose.pose.position.x = -0.5 * t
+            desired_pose.pose.position.y = 0.5 * math.sin(0.1 * t)
+            desired_pose.pose.position.z = 0.5 * math.cos(0.1 * t)
+            yaw_desired = 0.1 * t  
+        else:
+            # tener la última posición y orientación de 65 segundos
+            desired_pose.pose.position.x = -30
+            desired_pose.pose.position.y = 0.5 * math.sin(6)
+            desired_pose.pose.position.z = 0.5 * math.cos(6)
+            yaw_desired = 6  # Yaw final
+        quaternion = tf.transformations.quaternion_from_euler(0, 0, yaw_desired)
+        desired_pose.pose.orientation.x = quaternion[0]
+        desired_pose.pose.orientation.y = quaternion[1]
+        desired_pose.pose.orientation.z = quaternion[2]
+        desired_pose.pose.orientation.w = quaternion[3]
+        # publicar la posición y orientación 
+        pub.publish(desired_pose)
+        rate.sleep()
+if __name__ == '__main__':
+    try:
+        publish_trajectory()
+    except rospy.ROSInterruptException:
+        pass
